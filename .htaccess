@@ -1,4 +1,15 @@
+# BEGIN Serve Static Cache
+RewriteEngine On
+RewriteBase /
+RewriteCond %{HTTP_COOKIE} !(^|;\s*)wordpress_logged_in_.*$ [NC]
+RewriteCond %{REQUEST_URI} !^/(elementor|vc_row|fl_builder|fl-theme-builder) [NC]
+RewriteCond %{REQUEST_URI} !^/wp-admin/ [NC]
+RewriteCond %{REQUEST_METHOD} GET
+RewriteCond %{QUERY_STRING} ^$ [NC]
+RewriteCond C:\xampp\htdocs\example/wp-content/serve-static-cache/example/$1/index.html -f
+RewriteRule ^(.*)$ /example/wp-content/serve-static-cache/example/$1/index.html [L]
 
+# END Serve Static Cache
 # BEGIN WordPress
 # The directives (lines) between "BEGIN WordPress" and "END WordPress" are
 # dynamically generated, and should only be modified via WordPress filters.
