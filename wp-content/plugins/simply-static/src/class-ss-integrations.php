@@ -30,17 +30,18 @@ class Integrations {
 			'aio-seo'           => AIO_SEO_Integration::class,
 			'seopress'          => SEOPress_Integration::class,
 			'elementor'         => Elementor_Integration::class,
-			'elementor-pro'     => Elementor_Pro_Integration::class,
+			'divi'              => Divi_Integration::class,
 			'cookieyes'         => CookieYes_Integration::class,
 			'complianz'         => Complianz_Integration::class,
 			//'search-and-filter' => SearchAndFilter_Integration::class,
-			'jetpack'           => Jetpack_Integration::class,
 			'multilingual'      => Multilingual_Integration::class,
 			'github'            => Github_Integration::class,
 			'shortpixel'        => Shortpixel_Integration::class,
 			'redirection'       => Redirection_Integration::class,
 			'environments'      => Environments_Integration::class,
+			'nsg-seo-generator' => Nsg_SEO_Generator_Integration::class,
 			'delay'             => Delay_Integration::class,
+			'multisite'         => Multisite_Integration::class,
 		] );
 	}
 
@@ -58,9 +59,8 @@ class Integrations {
 		require_once $path . 'class-aio-seo-integration.php';
 		require_once $path . 'class-seopress-integration.php';
 		require_once $path . 'class-elementor-integration.php';
-		require_once $path . 'class-elementor-pro-integration.php';
+		require_once $path . 'class-divi-integration.php';
 		require_once $path . 'class-cookie-yes-integration.php';
-		require_once $path . 'class-jetpack-integration.php';
 
 		// Simply Static Pro integrations.
 		require_once $path . 'class-pro-integration.php';
@@ -71,5 +71,7 @@ class Integrations {
 		require_once $path . 'pro/class-search-and-filter-integration.php';
 		require_once $path . 'pro/class-redirection-integration.php';
 		require_once $path . 'pro/class-environments-integration.php';
+		require_once $path . 'pro/class-nsg-seo-generator-integration.php';
+		require_once $path . 'pro/class-multisite-integration.php';
 	}
 }

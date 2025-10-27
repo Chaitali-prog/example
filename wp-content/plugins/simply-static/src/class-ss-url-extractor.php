@@ -202,7 +202,9 @@ class Url_Extractor {
 			$this->save_body( $this->extract_and_replace_urls_in_html() );
 		}
 
-		if ( $this->static_page->is_type( 'css' ) ) {
+		// Treat as CSS either by content-type or by file extension fallback (handles servers sending wrong or missing headers)
+		$looks_like_css = $this->static_page->is_type( 'css' ) || ( isset( $this->static_page->file_path ) && substr( $this->static_page->file_path, -4 ) === '.css' );
+		if ( $looks_like_css ) {
 			$this->save_body( $this->extract_and_replace_urls_in_css( $this->get_body() ) );
 		}
 
@@ -280,9 +282,9 @@ class Url_Extractor {
 			'ampersand' => '&amp;'
 		];
 
-		foreach ($entities as $placehoder_name => $entity) {
+		foreach ($entities as $placeholder_name => $entity) {
 			if (strpos($content, $entity) !== false) {
-				$placeholder =  strtoupper( $placehoder_name ) . "_PLACEHOLDER";
+				$placeholder =  strtoupper( $placeholder_name ) . "_PLACEHOLDER";
 				$content = str_replace($entity, $placeholder, $content);
 			}
 		}
@@ -312,8 +314,8 @@ class Url_Extractor {
 			'ampersand' => '&amp;'
 		];
 
-		foreach ($entities as $placehoder_name => $entity) {
-			$placeholder =  strtoupper( $placehoder_name ) . "_PLACEHOLDER";
+		foreach ($entities as $placeholder_name => $entity) {
+			$placeholder =  strtoupper( $placeholder_name ) . "_PLACEHOLDER";
 			if (strpos($content, $placeholder) !== false) {
 				$content = str_replace($placeholder, $entity, $content);
 			}
@@ -486,6 +488,16 @@ class Url_Extractor {
 		// Preserve JSON attributes before processing
 		$html_string = $this->preserve_attributes($html_string);
 
+		// Extract and preserve non-conditional HTML comments to avoid altering their content (e.g., commented-out scripts)
+		$html_comments = [];
+		$comment_placeholder = '<!-- COMMENT_PLACEHOLDER_%d -->';
+		$non_conditional_comment_regex = '/<!--(?!\s*\[if).*?-->/s';
+		$html_string = preg_replace_callback( $non_conditional_comment_regex, function( $matches ) use ( &$html_comments, &$comment_placeholder ) {
+			$index = count( $html_comments );
+			$html_comments[] = $matches[0];
+			return sprintf( $comment_placeholder, $index );
+		}, $html_string );
+
 		// Next, extract and save all script tags using regex to ensure they're preserved
 		$this->script_tags  = []; // Reset the array for each call
 		$script_placeholder = '<!-- SCRIPT_PLACEHOLDER_%d -->';
@@ -599,6 +611,11 @@ class Url_Extractor {
 			return $conditional_comment;
 		}, $html_string );
 
+		// If there's no HTML to process, return early to avoid DOM warnings/errors
+		if ( ! is_string( $html_string ) || trim( $html_string ) === '' ) {
+			return $html_string;
+		}
+
 		// Use PHP's native DOMDocument
 		$dom = new DOMDocument();
 
@@ -609,16 +626,7 @@ class Url_Extractor {
 		$dom->preserveWhiteSpace = true;
 		$dom->formatOutput       = false;
 
-		// Load the HTML directly without a wrapper
-		$utf8_html_string = htmlspecialchars_decode( htmlentities( $html_string, ENT_COMPAT, 'utf-8', false ) );
-
-		// Check if the HTML string is empty to prevent ValueError
-		if ( empty( $utf8_html_string ) ) {
-			// Return the original HTML string if the processed string is empty
-			return $html_string;
-		}
-
-		$dom->loadHTML( $utf8_html_string );
+		$dom->loadHTML( $html_string );
 
 		// Clear any errors
 		libxml_clear_errors();
@@ -700,13 +708,56 @@ class Url_Extractor {
 				}
 			}, $html );
 
+			// Restore non-conditional comments exactly as they were
+			$html = preg_replace_callback( '/<!-- COMMENT_PLACEHOLDER_(\d+) -->/', function ( $matches ) use ( $html_comments ) {
+				$index = (int) $matches[1];
+				return isset( $html_comments[ $index ] ) ? $html_comments[ $index ] : '';
+			}, $html );
+
 			// Restore JSON attributes
 			$html = $this->restore_attributes($html);
 
 			$html = apply_filters( 'ss_html_after_restored_attributes', $html, $this );
 
+			// Optionally decode numeric HTML entities (>=128) back into UTF-8 characters.
+			// This helps preserve non-Latin characters (e.g., Japanese) that libxml may output as entities.
+			$decode_numeric_entities = apply_filters( 'ss_decode_numeric_entities_after_dom', true, $this );
+			if ( $decode_numeric_entities ) {
+				$html = $this->decode_numeric_entities_safely( $html );
+			}
+
 			return $html;
 		}
+	}
+
+	/**
+	 * Decode numeric HTML entities (decimal and hex) with code points >= 128 to UTF-8.
+	 * This avoids decoding structural entities like <, >, &, etc., while restoring
+	 * non-Latin characters (e.g., Japanese) that DOMDocument may output as entities.
+	 *
+	 * @param string $html
+	 * @return string
+	 */
+	private function decode_numeric_entities_safely( $html ) {
+		// Decode decimal numeric entities
+		$html = preg_replace_callback( '/&#(\d+);/u', function ( $m ) {
+			$code = intval( $m[1] );
+			if ( $code < 128 ) {
+				return $m[0]; // keep ASCII entities intact (e.g., &#60;)
+			}
+			return html_entity_decode( '&#' . $code . ';', ENT_NOQUOTES, 'UTF-8' );
+		}, $html );
+
+		// Decode hexadecimal numeric entities
+		$html = preg_replace_callback( '/&#x([0-9a-fA-F]+);/u', function ( $m ) {
+			$code = hexdec( $m[1] );
+			if ( $code < 128 ) {
+				return $m[0];
+			}
+			return html_entity_decode( '&#x' . strtoupper( $m[1] ) . ';', ENT_NOQUOTES, 'UTF-8' );
+		}, $html );
+
+		return $html;
 	}
 
 	/**
@@ -752,15 +803,53 @@ class Url_Extractor {
 	 * @return string The CSS with all URLs converted
 	 */
 	private function extract_and_replace_urls_in_css( $text ) {
-		$text     = html_entity_decode( $text );
-		$patterns = array(
-			"/url\(\s*[\"']?([^)\"']+)/", // url()
-			"/@import\s+[\"']([^\"']+)/"
-		); // @import w/o url()
+		// Decode entities to ensure URLs are detected correctly
+		$text = html_entity_decode( $text );
 
-		foreach ( $patterns as $pattern ) {
-			$text = preg_replace_callback( $pattern, array( $this, 'css_matches' ), $text );
-		}
+		// Pass 1: Handle url(...) constructs with quoted or unquoted values, including relative URLs.
+		// Pattern breakdown:
+		// - url( optional whitespace
+		// - capture optional quote (single or double) in group 1
+		// - capture the URL (anything but closing paren; we'll trim trailing whitespace) in group 2
+		// - match the same optional quote in group 3 via backreference
+		// - optional whitespace and closing paren
+		$text = preg_replace_callback(
+			'/url\(\s*(?:(["\'])\s*)?([^\)\s]+?)\s*(?:\1)?\s*\)/i',
+			function ( $m ) {
+				$quote = isset( $m[1] ) ? $m[1] : '';
+				$raw   = $m[2];
+				$val   = trim( $raw );
+
+				// Skip data URIs or empty
+				if ( $val === '' || stripos( $val, 'data:' ) === 0 ) {
+					return $m[0];
+				}
+
+				$updated = $this->add_to_extracted_urls( $val );
+				if ( empty( $updated ) ) {
+					return $m[0];
+				}
+
+				// Reconstruct preserving original quote style if present
+				if ( $quote === '"' || $quote === "'" ) {
+					return 'url(' . $quote . $updated . $quote . ')';
+				}
+				return 'url(' . $updated . ')';
+			},
+			$text
+		);
+
+		// Pass 2: Fallback - replace any remaining bare local absolute or protocol-relative URLs by converting them.
+		$escaped_origin = preg_quote( Util::origin_host(), '/' );
+		$text = preg_replace_callback(
+			'/((?:https?:)?\/\/' . $escaped_origin . ')[^"\')\s;,]+/i',
+			function ( $m ) {
+				$matched_url = $m[0];
+				$updated = $this->add_to_extracted_urls( $matched_url );
+				return $updated ?: $matched_url;
+			},
+			$text
+		);
 
 		return $text;
 	}
@@ -774,6 +863,9 @@ class Url_Extractor {
 
 		$decoded_text = apply_filters( 'simply_static_decoded_urls_in_script', $decoded_text, $this->static_page, $this );
 
+		// Check if this is an importmap script
+		$is_importmap = $this->is_valid_json( $decoded_text ) && strpos( $decoded_text, '"imports"' ) !== false;
+
 		// Get the appropriate replacement URL based on destination URL type
 		switch ( $this->options->get( 'destination_url_type' ) ) {
 			case 'absolute':
@@ -785,6 +877,11 @@ class Url_Extractor {
 			default:
 				// Offline mode
 				$convert_to = '/';
+
+				// For importmap scripts in offline mode, we need to add './' prefix
+				if ( $is_importmap ) {
+					$convert_to = './' . $convert_to;
+				}
 		}
 
 		// Replace URLs in the script content
@@ -937,13 +1034,15 @@ class Url_Extractor {
 		$url = Util::relative_to_absolute_url( $extracted_url, $this->static_page->url );
 
 		if ( $url && Util::is_local_url( $url ) ) {
-			// add to extracted urls queue
-			$this->extracted_urls[] = apply_filters(
-				'simply_static_extracted_url',
-				Util::remove_params_and_fragment( $url ),
-				$url,
-				$this->static_page
-			);
+			// Only add to extracted urls queue if smart_crawl is not enabled
+			if ( ! $this->options->get( 'smart_crawl' ) ) {
+				$this->extracted_urls[] = apply_filters(
+					'simply_static_extracted_url',
+					Util::remove_params_and_fragment( $url ),
+					$url,
+					$this->static_page
+				);
+			}
 
 			$url = $this->convert_url( $url );
 		}
@@ -958,7 +1057,7 @@ class Url_Extractor {
 	 *
 	 * @return string      Converted URL
 	 */
-	private function convert_url( $url ) {
+	public function convert_url( $url ) {
 
 		$url = apply_filters( 'simply_static_pre_converted_url', $url, $this->static_page, $this );
 

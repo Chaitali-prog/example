@@ -130,6 +130,9 @@ class Rank_Math_Integration extends Integration {
 			$static_page->handler     = Rank_Math_Sitemap_Handler::class;
 			$static_page->save();
 		}
+
+		// Extract and add individual sitemap URLs from sitemap_index.xml
+		$this->extract_sitemap_urls_from_index();
 	}
 
 	/**
@@ -145,6 +148,29 @@ class Rank_Math_Integration extends Integration {
 		}
 
 		$urls[] = Router::get_base_url( 'sitemap_index.xml' );
+		$urls[] = Router::get_base_url( 'main-sitemap.xsl' );
+
+		// Extract individual sitemap URLs from sitemap_index.xml
+		$sitemap_index_url = Router::get_base_url( 'sitemap_index.xml' );
+		$response = wp_remote_get( $sitemap_index_url, array( 'timeout' => 30 ) );
+
+		if ( ! is_wp_error( $response ) && wp_remote_retrieve_response_code( $response ) === 200 ) {
+			$xml_content = wp_remote_retrieve_body( $response );
+
+			// Use SimpleXML to parse the XML
+			libxml_use_internal_errors( true );
+			$xml = simplexml_load_string( $xml_content );
+
+			if ( $xml !== false && isset( $xml->sitemap ) ) {
+				foreach ( $xml->sitemap as $sitemap ) {
+					if ( isset( $sitemap->loc ) ) {
+						$sitemap_url = (string) $sitemap->loc;
+						$urls[] = $sitemap_url;
+						Util::debug_log( 'Adding individual sitemap URL to single export: ' . $sitemap_url );
+					}
+				}
+			}
+		}
 
 		return $urls;
 	}
@@ -152,16 +178,33 @@ class Rank_Math_Integration extends Integration {
 	/**
 	 * Replace JSON schema for schema.org
 	 *
-	 * @param object $dom given dom element.
+	 * @param mixed  $dom DOMDocument or HTML string.
 	 * @param string $url given URL.
 	 *
-	 * @return object
+	 * @return mixed DOMDocument or HTML string (same type as input)
 	 */
 	public function replace_json_schema( $dom, $url ) {
 		$options = Options::instance();
 
+		// Normalize input to DOMDocument while keeping track of original type.
+		$original_was_string = is_string( $dom );
+
+		if ( $original_was_string ) {
+			$doc = new \DOMDocument();
+			libxml_use_internal_errors( true );
+			// Suppress implied html/body to better preserve fragments if possible.
+			$load_options = defined('LIBXML_HTML_NOIMPLIED') ? (LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD) : 0;
+			$doc->loadHTML( $dom, $load_options );
+			libxml_clear_errors();
+		} elseif ( $dom instanceof \DOMDocument ) {
+			$doc = $dom;
+		} else {
+			// Unknown type; nothing to do.
+			return $dom;
+		}
+
 		// Use DOMXPath to find script elements with class 'rank-math-schema'
-		$xpath = new \DOMXPath( $dom );
+		$xpath = new \DOMXPath( $doc );
 		$scripts = $xpath->query( '//script[contains(@class, "rank-math-schema")]' );
 
 		if ( $scripts ) {
@@ -172,7 +215,12 @@ class Rank_Math_Integration extends Integration {
 			}
 		}
 
-		return $dom;
+		// Return the same type that was provided.
+		if ( $original_was_string ) {
+			return $doc->saveHTML();
+		}
+
+		return $doc;
 	}
 
 	/**
@@ -182,5 +230,53 @@ class Rank_Math_Integration extends Integration {
 	 */
 	public function dependency_active() {
 		return class_exists( 'RankMath' );
+	}
+
+	/**
+	 * Extract sitemap URLs from sitemap_index.xml and add them to the queue.
+	 *
+	 * @return void
+	 */
+	protected function extract_sitemap_urls_from_index() {
+		if ( ! class_exists( '\RankMath\Sitemap\Router' ) ) {
+			return;
+		}
+
+		$sitemap_index_url = Router::get_base_url( 'sitemap_index.xml' );
+		$response = wp_remote_get( $sitemap_index_url, array( 'timeout' => 30 ) );
+
+		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+			Util::debug_log( 'Failed to fetch sitemap index: ' . $sitemap_index_url );
+			return;
+		}
+
+		$xml_content = wp_remote_retrieve_body( $response );
+
+		// Use SimpleXML to parse the XML
+		libxml_use_internal_errors( true );
+		$xml = simplexml_load_string( $xml_content );
+
+		if ( $xml === false ) {
+			Util::debug_log( 'Failed to parse sitemap index XML: ' . $sitemap_index_url );
+			return;
+		}
+
+		// Extract sitemap URLs
+		if ( isset( $xml->sitemap ) ) {
+			foreach ( $xml->sitemap as $sitemap ) {
+				if ( isset( $sitemap->loc ) ) {
+					$sitemap_url = (string) $sitemap->loc;
+
+					// Add the sitemap URL to the queue
+					Util::debug_log( 'Adding sitemap URL to queue: ' . $sitemap_url );
+					/** @var \Simply_Static\Page $static_page */
+					$static_page = Page::query()->find_or_initialize_by( 'url', $sitemap_url );
+					$static_page->set_status_message( __( 'Sitemap URL', 'simply-static' ) );
+					$static_page->found_on_id = 0;
+					$static_page->handler     = Rank_Math_Sitemap_Handler::class;
+					$static_page->save();
+				}
+			}
+		}
 	}
 }
