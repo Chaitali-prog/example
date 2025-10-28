@@ -20938,3 +20938,17 @@
 [2025-10-28 13:36:26] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
 [2025-10-28 13:37:27] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
 [2025-10-28 13:37:30] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:37:48] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:39:28] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:39:31] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:39:49] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:41:29] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:41:32] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:41:50] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:43:30] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:43:33] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:43:51] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:45:31] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:45:47] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:45:57] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 13:47:58] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
