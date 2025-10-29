@@ -42,6 +42,9 @@ class Admin_Settings {
 		// This avoids a SecurityError when Basic Auth credentials are present in the URL.
 		add_action( 'admin_head', array( $this, 'maybe_disable_admin_canonical' ), 1 );
 
+		// Ensure the "View Site" link points to the static site even if the admin bar integration is disabled.
+		add_action( 'admin_bar_menu', array( $this, 'filter_view_site_link' ), 200 );
+
 		$this->failed_tests = intval( get_transient( 'simply_static_failed_tests' ) );
 
 		Admin_Meta::get_instance();
@@ -384,6 +387,14 @@ class Admin_Settings {
 		register_rest_route( 'simplystatic/v1', '/settings/reset-database', array(
 			'methods'             => 'POST',
 			'callback'            => [ $this, 'reset_database' ],
+			'permission_callback' => function () {
+				return current_user_can( apply_filters( 'ss_user_capability', 'manage_options', 'settings' ) );
+			},
+		) );
+
+		register_rest_route( 'simplystatic/v1', '/settings/reset-background-queue', array(
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'reset_background_queue' ],
 			'permission_callback' => function () {
 				return current_user_can( apply_filters( 'ss_user_capability', 'manage_options', 'settings' ) );
 			},
@@ -838,6 +849,42 @@ class Admin_Settings {
 		Page::create_or_update_table();
 
 		return json_encode( [ 'status' => 200, 'message' => "Ok" ] );
+	}
+
+	/**
+	 * Reset the background queue (delete all batches, status, locks and clear cron).
+	 * Useful when the export is stuck with message: "There is already an export running".
+	 *
+	 * @return false|string
+	 */
+	public function reset_background_queue() {
+		try {
+			/** @var Archive_Creation_Job $job */
+			$job = Plugin::instance()->get_archive_creation_job();
+
+			// Delete all batches and status for this job.
+			$job->delete_all();
+
+			// Clear any scheduled cron for this job using known hook name.
+			$identifier = 'wp_' . 'archive_creation_job'; // Background_Process identifier is prefix + action
+			$cron_hook  = $identifier . '_cron';
+			while ( $timestamp = wp_next_scheduled( $cron_hook ) ) {
+				wp_unschedule_event( $timestamp, $cron_hook );
+			}
+			wp_clear_scheduled_hook( $cron_hook );
+
+			// Remove process lock transient so a new run can start immediately.
+			$site_id = function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : null;
+			$lock_key = $identifier . '_process_lock';
+			if ( is_multisite() && ! is_null( $site_id ) ) {
+				$lock_key .= '_site_' . $site_id;
+			}
+			delete_site_transient( $lock_key );
+
+			return json_encode( [ 'status' => 200, 'message' => 'Ok' ] );
+		} catch ( \Throwable $e ) {
+			return json_encode( [ 'status' => 500, 'message' => $e->getMessage() ] );
+		}
 	}
 
 	/**
@@ -1309,5 +1356,47 @@ class Admin_Settings {
 			'status' => 200,
 			'data'   => $post_types_for_js,
 		] );
+	}
+
+	/**
+	 * Filter the default "View Site" admin bar link to point to the static site.
+	 * This is registered here so it remains active even if the Admin Bar integration is disabled.
+	 *
+	 * @param \WP_Admin_Bar $admin_bar
+	 * @return void
+	 */
+	public function filter_view_site_link( $admin_bar ) {
+		// Allow disabling this behavior via filter.
+		if ( ! apply_filters( 'ss_enable_view_static_site_link', true ) ) {
+			return;
+		}
+
+		// Only proceed if admin bar is visible.
+		if ( ! function_exists( 'is_admin_bar_showing' ) || ! is_admin_bar_showing() ) {
+			return;
+		}
+
+		// Ensure we have the default node to modify.
+		$node = $admin_bar->get_node( 'view-site' );
+		if ( ! $node ) {
+			return;
+		}
+
+		$target_url = Util::get_static_site_url();
+		if ( $target_url === '' ) {
+			return; // Nothing to change or not configured.
+		}
+
+		// Update node title and href.
+		$node->title = __( 'View Static Site', 'simply-static' );
+		$node->href  = esc_url( $target_url );
+		// Open in a new tab for convenience and safety.
+		if ( ! isset( $node->meta ) || ! is_array( $node->meta ) ) {
+			$node->meta = [];
+		}
+		$node->meta['target'] = '_blank';
+		$node->meta['rel']    = 'noopener noreferrer';
+
+		$admin_bar->add_node( (array) $node );
 	}
 }
