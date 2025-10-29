@@ -20969,3 +20969,4 @@
 [2025-10-28 14:09:47] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
 [2025-10-28 14:09:54] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
 [2025-10-28 14:10:03] [class-elementor-integration.php:532] Elementor Crawler not in user selection; respecting opt-out and not adding.
+[2025-10-28 14:36:18] [class-crawlers.php:74] Found 18 crawler files
